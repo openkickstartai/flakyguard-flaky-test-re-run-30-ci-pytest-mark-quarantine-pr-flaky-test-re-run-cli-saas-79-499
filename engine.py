@@ -42,6 +42,8 @@ def ingest(db, xml_path, run_id=None):
     db.commit()
     return n, run_id
 
+    return n, run_id
+
 
 def detect(db, min_runs=3, threshold=0.1):
     """Detect flaky tests by computing flip rate across runs."""
