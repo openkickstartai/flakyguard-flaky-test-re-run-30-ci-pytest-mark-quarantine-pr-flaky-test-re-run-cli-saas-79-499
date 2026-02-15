@@ -20,13 +20,51 @@ def cli():
 
 
 @cli.command()
-@click.argument("xml_path", type=click.Path(exists=True))
-@click.option("--run-id", default=None, help="Custom run identifier")
-def ingest(xml_path, run_id):
-    """Ingest JUnit XML test results into history."""
-    db = engine.init_db(DB)
-    n, rid = engine.ingest(db, xml_path, run_id)
-    console.print(f"[green]✓[/] Ingested {n} test results (run: {rid})")
+@click.argument("path", type=click.Path(exists=True))
+@click.option("--run-id", default=None, help="Custom run identifier (single file mode)")
+def ingest(path, run_id):
+    """Ingest JUnit XML test results — single file or batch directory."""
+    if os.path.isdir(path):
+        import ingest as ingest_mod
+        pattern = os.path.join(path, "**", "*.xml")
+        result = ingest_mod.ingest_reports(pattern, DB)
+        console.print(
+            f"[green]\u2713[/] Ingested {result['files_ingested']} files "
+            f"({result['tests_recorded']} tests, "
+            f"{result['files_skipped']} skipped as duplicates)")
+    else:
+        db = engine.init_db(DB)
+        n, rid = engine.ingest(db, path, run_id)
+        console.print(f"[green]\u2713[/] Ingested {n} test results (run: {rid})")
+
+
+@cli.command()
+@click.option("--days", default=30, help="Analysis window in days")
+@click.option("--output", type=click.Choice(["table", "json"]), default="table")
+def trends(days, output):
+    """Analyze flakiness trends over time."""
+    import ingest as ingest_mod
+    results = ingest_mod.analyze_trends(DB, window_days=days)
+    if output == "json":
+        click.echo(json.dumps(results, indent=2))
+        return
+    if not results:
+        console.print("[green]\u2713 No trend data available.[/]")
+        return
+    tbl = Table(title=f"\U0001f6e1\ufe0f FlakyGuard \u2014 Flakiness Trends ({days} days)")
+    for col in ["Test", "Runs", "Fail Rate", "Slope", "Trend"]:
+        tbl.add_column(col)
+    for r in results:
+        trend_icon = {"improving": "\u2705", "worsening": "\u274c", "stable": "\u27a1\ufe0f"}.get(r["trend"], "?")
+        tbl.add_row(
+            r["test_name"],
+            str(r["total_runs"]),
+            f"{r['fail_rate']:.1%}",
+            f"{r['slope']:.4f}",
+            f"{trend_icon} {r['trend']}"
+        )
+    console.print(tbl)
+
 
 
 @cli.command()
